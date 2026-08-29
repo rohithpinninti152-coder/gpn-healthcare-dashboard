@@ -32,15 +32,42 @@ PALETTE = {
 # ---------------------------------------------------------------------------
 # Data
 # ---------------------------------------------------------------------------
+PRIMARY_SOURCE_MAP = {
+    "Digital Health News": "Digital Health News",
+    "Digital Health News / NHS Shared Business Services": "Digital Health News",
+    "EMJ Reviews, citing NHS England / King's Fund analysis": "EMJ Reviews",
+    "GOV.UK / DHSC": "GOV.UK / DHSC",
+    "GOV.UK / DHSC, DSIT, NHS England": "GOV.UK / DHSC",
+    "GOV.UK — UKHSA": "UKHSA",
+    "NHS Confederation": "NHS Confederation",
+    "NHS Confederation, citing HSJ": "NHS Confederation",
+    "NHS England": "NHS England",
+    "NHS England (London)": "NHS England",
+    "Prescriber.org.uk (NICE guidance digest)": "NICE",
+    "The Health Foundation": "The Health Foundation",
+    "The King's Fund": "The King's Fund",
+    "The Pharmaceutical Journal": "The Pharmaceutical Journal",
+    "UK Parliament — Written Ministerial Statement": "UK Parliament",
+    "UKHSA (via Streamlinefeed / gov.uk reporting)": "UKHSA",
+    "UKHSA / Met Office (via ITV News, GOV.UK)": "UKHSA",
+}
+
+
+def map_primary_source(source: str) -> str:
+    return PRIMARY_SOURCE_MAP.get(source, source)
+
+
 @st.cache_data
 def load_data():
     df = pd.read_csv("data.csv")
     df["Topic Tags"] = df["Topic Tags"].apply(lambda s: [t.strip() for t in s.split(";")])
     df["Audience Tags"] = df["Audience Tags"].apply(lambda s: [t.strip() for t in s.split(";")])
     df["Date"] = pd.to_datetime(df["Date"]).dt.date
+    df["Primary Source"] = df["Source"].apply(map_primary_source)
     return df
 
 df = load_data()
+ALL_SOURCES = sorted(df["Primary Source"].unique())
 
 ALL_TOPICS = ["Policy", "Clinical Guidance", "Regulation", "Funding", "Technology", "Public Health", "Market"]
 ALL_AUDIENCES = ["Clinicians", "Healthcare Managers", "Policy Teams", "Commissioners", "Industry Stakeholders", "Patients"]
@@ -156,6 +183,23 @@ st.markdown(
 )
 
 # ---------------------------------------------------------------------------
+# Top filter bar — category / source buttons (added per tutor feedback:
+# filters should also be available as buttons/icons at the top of the page,
+# not just tucked away in the sidebar)
+# ---------------------------------------------------------------------------
+st.markdown("**Filter by category**")
+top_topic_filter = st.pills(
+    "Topic", ALL_TOPICS, selection_mode="multi", label_visibility="collapsed", key="top_topic_pills"
+)
+
+st.markdown("**Filter by news source**")
+top_source_filter = st.pills(
+    "Source", ALL_SOURCES, selection_mode="multi", label_visibility="collapsed", key="top_source_pills"
+)
+
+st.divider()
+
+# ---------------------------------------------------------------------------
 # Persona selector
 # ---------------------------------------------------------------------------
 st.markdown("**Reading as**")
@@ -181,13 +225,19 @@ st.divider()
 # Sidebar filters
 # ---------------------------------------------------------------------------
 with st.sidebar:
-    st.header("Filters")
+    st.header("More filters")
     search = st.text_input("Search updates", "")
-    topic_filter = st.multiselect("Topic", ALL_TOPICS)
+    sidebar_topic_filter = st.multiselect("Topic", ALL_TOPICS)
     audience_filter = st.multiselect("Relevant to", ALL_AUDIENCES)
     if st.button("Clear all filters"):
-        search, topic_filter, audience_filter = "", [], []
+        search, sidebar_topic_filter, audience_filter = "", [], []
+        st.session_state.top_topic_pills = []
+        st.session_state.top_source_pills = []
         st.rerun()
+
+# Combine the top category pills with the sidebar's Topic multiselect —
+# either one selecting a tag is enough to apply that filter.
+topic_filter = list(set(top_topic_filter or []) | set(sidebar_topic_filter or []))
 
 # ---------------------------------------------------------------------------
 # Filter + score
@@ -195,6 +245,8 @@ with st.sidebar:
 filtered = df.copy()
 if topic_filter:
     filtered = filtered[filtered["Topic Tags"].apply(lambda tags: any(t in tags for t in topic_filter))]
+if top_source_filter:
+    filtered = filtered[filtered["Primary Source"].isin(top_source_filter)]
 if audience_filter:
     filtered = filtered[filtered["Audience Tags"].apply(lambda tags: any(a in tags for a in audience_filter))]
 if search:
