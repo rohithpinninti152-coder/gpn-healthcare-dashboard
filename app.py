@@ -7,6 +7,8 @@ Run with:  streamlit run app.py
 
 import pandas as pd
 import streamlit as st
+import base64
+import os
 
 # ---------------------------------------------------------------------------
 # Page setup
@@ -16,6 +18,22 @@ st.set_page_config(
     page_icon="🩺",
     layout="wide",
 )
+
+
+def logo_html(width_px: int) -> str:
+    """Return an <img> tag for the real GPN logo (gpn_logo.png, must sit next
+    to app.py) if the file is present, otherwise fall back to a plain text
+    badge so the app doesn't break if the image file is missing."""
+    logo_path = "gpn_logo.png"
+    if os.path.exists(logo_path):
+        with open(logo_path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode()
+        return f'<img src="data:image/png;base64,{b64}" style="width:{width_px}px; height:auto; flex:none;" alt="Global Policy Network logo">'
+    return (
+        f'<div style="width:{width_px*0.4}px; height:{width_px*0.4}px; border-radius:8px; '
+        f'background:{PALETTE["teal"]}; display:flex; align-items:center; justify-content:center; '
+        f'font-weight:700; font-size:14px; color:#fff; flex:none;">GPN</div>'
+    )
 
 PALETTE = {
     "navy": "#1B2430",
@@ -201,8 +219,6 @@ if "persona" not in st.session_state:
     st.session_state.persona = "clinical_lead"
 if "selected_id" not in st.session_state:
     st.session_state.selected_id = None
-if "page" not in st.session_state:
-    st.session_state.page = "landing"
 
 # ---------------------------------------------------------------------------
 # Global style
@@ -275,34 +291,12 @@ st.markdown(
     .brief-info-label {{ font-size: 10.5px; font-weight: 700; text-transform: uppercase;
         letter-spacing: .05em; margin-bottom: 4px; }}
     .brief-info-text {{ font-size: 13px; line-height: 1.5; color: #1f2937; }}
-
-    /* Landing page */
-    .landing-hero {{
-        background: linear-gradient(160deg, {PALETTE['navy']} 0%, {PALETTE['teal']} 130%);
-        border-radius: 16px; padding: 44px 40px; color: #f1efe8; margin-bottom: 24px;
-    }}
-    .landing-section-title {{ font-size: 22px; font-weight: 700; color: {PALETTE['navy']};
-        margin: 34px 0 6px; }}
-    .use-card, .benefit-card {{
-        background: #ffffff; border: 0.5px solid {PALETTE['line']}; border-radius: 10px;
-        padding: 16px 18px; height: 100%;
-    }}
-    .use-card h4, .benefit-card h4 {{ margin: 0 0 6px; font-size: 14.5px; color: {PALETTE['navy']}; }}
-    .use-card p, .benefit-card p {{ margin: 0; font-size: 13px; color: #4b5563; line-height: 1.5; }}
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# ---------------------------------------------------------------------------
-# NOTE: the landing/intro page (hero + "who this is for" + benefits) was
-# removed for now, on request, so the dashboard opens directly and the core
-# features (logo, last-updated, filters, personas, questionnaire) are
-# immediately visible without an extra click. The landing page content is
-# kept in landing_page_backup.py if it's wanted again later.
-# ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
 last_updated = df["Date"].max().strftime("%d %b %Y")
@@ -310,10 +304,8 @@ st.markdown(
     f"""
     <div class="gpn-header">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
-            <div style="display:flex; align-items:center; gap:10px;">
-                <div style="width:34px; height:34px; border-radius:8px; background:{PALETTE['teal']};
-                    display:flex; align-items:center; justify-content:center; font-weight:700; font-size:14px;
-                    color:#fff; flex:none;">GPN</div>
+            <div style="display:flex; align-items:center; gap:14px;">
+                {logo_html(56)}
                 <div>
                     <p class="gpn-eyebrow" style="margin:0;">Global Policy Network · Prototype</p>
                     <a href="https://www.GlobalPolicyNetwork.com" target="_blank"
