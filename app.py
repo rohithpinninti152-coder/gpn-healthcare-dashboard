@@ -103,6 +103,17 @@ PERSONAS = {
         "preferred": "An operational and market summary: what's changing, what it "
                       "costs or requires to adopt, and what to do about it.",
     },
+    "policy_maker_amina": {
+        "name": "Amina Yusuf",
+        "role": "Senior Policy Maker, Department of Health and Social Care",
+        "color": "#8a4b6b",
+        "match_topics": ["Policy", "Regulation", "Public Health"],
+        "match_audience": ["Policy Teams", "Industry Stakeholders"],
+        "focus": ["Who It Affects", "Why It Matters"],
+        "preferred": "A national-policy framing: how an update fits wider legislation "
+                      "or strategy, who it affects at population scale, and what "
+                      "coordination across departments or regulators it implies.",
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -134,6 +145,55 @@ def reliability_badge(text: str) -> str:
     return "⚪ Low"
 
 
+def reliability_score_10(text: str) -> float:
+    """Numeric reliability score out of 10, for the 'signal strength' bar."""
+    if text.startswith("High"):
+        return 9.5
+    if text.startswith("Medium-High"):
+        return 7.0
+    if text.startswith("Medium"):
+        return 5.5
+    return 4.0
+
+
+def urgency_level(relevance_pct: int) -> tuple:
+    """Derive an urgency label + color from the persona relevance score."""
+    if relevance_pct >= 70:
+        return "High urgency", PALETTE["amber"], "#F5DCC8"
+    if relevance_pct >= 40:
+        return "Medium urgency", PALETTE["violet"], PALETTE["violet_soft"]
+    return "Low urgency", "#6b7280", "#e9e9e9"
+
+
+def bar_heights(seed_text: str) -> list:
+    """Deterministic-but-varied bar heights for the decorative mini chart, seeded by title."""
+    h = abs(hash(seed_text))
+    return [30 + (h >> (i * 4) & 0xF) * 4 for i in range(5)]
+
+
+def time_ago(update_date, reference_date) -> str:
+    """A relative 'time ago' label, e.g. '3 days ago' — calculated against the
+    dataset's own most recent update, not real wall-clock time, since this is
+    a fixed historical sample rather than a live feed."""
+    days = (reference_date - update_date).days
+    if days <= 0:
+        return "Today"
+    if days == 1:
+        return "1 day ago"
+    if days < 7:
+        return f"{days} days ago"
+    if days < 14:
+        return "1 week ago"
+    if days < 30:
+        return f"{days // 7} weeks ago"
+    if days < 60:
+        return "1 month ago"
+    if days < 365:
+        return f"{days // 30} months ago"
+    years = days // 365
+    return "1 year ago" if years == 1 else f"{years} years ago"
+
+
 # ---------------------------------------------------------------------------
 # Session state
 # ---------------------------------------------------------------------------
@@ -141,6 +201,8 @@ if "persona" not in st.session_state:
     st.session_state.persona = "clinical_lead"
 if "selected_id" not in st.session_state:
     st.session_state.selected_id = None
+if "page" not in st.session_state:
+    st.session_state.page = "landing"
 
 # ---------------------------------------------------------------------------
 # Global style
@@ -161,19 +223,107 @@ st.markdown(
         font-size: 11px; margin-right: 5px; margin-bottom: 4px; }}
     .badge-topic {{ background: {PALETTE['teal_soft']}; color: {PALETTE['teal']}; }}
     .badge-audience {{ background: {PALETTE['violet_soft']}; color: {PALETTE['violet']}; }}
+    .gpn-stat-card {{
+        background: {PALETTE['navy']}; border-radius: 10px; padding: 18px 20px;
+        text-align: center; color: #f1efe8;
+    }}
+    .gpn-stat-number {{ font-size: 32px; font-weight: 700; color: {PALETTE['teal']}; margin: 0; }}
+    .gpn-stat-label {{ font-size: 12px; color: #c7cad3; margin: 4px 0 0; text-transform: uppercase;
+        letter-spacing: .06em; }}
+
+    /* Intelligence brief card */
+    .brief-card {{
+        display: grid; grid-template-columns: 140px 1fr; gap: 0;
+        background: {PALETTE['paper_card'] if 'paper_card' in PALETTE else '#ffffff'};
+        border: 0.5px solid {PALETTE['line']}; border-radius: 14px; overflow: hidden;
+        margin-bottom: 18px;
+    }}
+    .brief-sidepanel {{
+        background: linear-gradient(160deg, {PALETTE['navy']} 0%, {PALETTE['teal']} 130%);
+        padding: 18px 14px; display: flex; flex-direction: column; justify-content: space-between;
+        color: #fff; min-height: 100%;
+    }}
+    .brief-sysmap {{
+        display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,.14);
+        border-radius: 999px; padding: 4px 10px; font-size: 10.5px; font-weight: 600;
+        letter-spacing: .04em; width: fit-content;
+    }}
+    .brief-bars {{ display: flex; align-items: flex-end; gap: 6px; height: 80px; margin: 18px 0; }}
+    .brief-bar {{ width: 12px; background: rgba(255,255,255,.55); border-radius: 3px; }}
+    .brief-signal-label {{ font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+        opacity: .85; display: flex; justify-content: space-between; margin-bottom: 4px; }}
+    .brief-signal-bar {{ height: 5px; background: rgba(255,255,255,.25); border-radius: 4px; overflow: hidden; }}
+    .brief-signal-fill {{ height: 100%; background: #fff; border-radius: 4px; }}
+    .brief-main {{ padding: 18px 22px; }}
+    .brief-top-row {{ display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }}
+    .brief-tags {{ display: flex; gap: 8px; flex-wrap: wrap; }}
+    .brief-tag {{ font-size: 11.5px; font-weight: 600; padding: 4px 11px; border-radius: 999px; }}
+    .brief-relevance-box {{
+        text-align: right; background: {PALETTE['paper']}; border: 0.5px solid {PALETTE['line']};
+        border-radius: 8px; padding: 6px 12px; flex: none;
+    }}
+    .brief-relevance-label {{ font-size: 9.5px; color: {PALETTE['muted'] if 'muted' in PALETTE else '#6b7280'};
+        letter-spacing: .06em; }}
+    .brief-relevance-value {{ font-size: 18px; font-weight: 700; color: {PALETTE['navy']}; }}
+    .brief-title {{ font-size: 19px; font-weight: 700; color: {PALETTE['navy']}; margin: 12px 0 4px; line-height: 1.3; }}
+    .brief-meta {{ font-size: 12.5px; color: #6b7280; margin-bottom: 10px; display:flex; align-items:center; gap:8px; }}
+    .brief-time-ago {{ font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+        background: #eef2f7; color: #4b5563; }}
+    .brief-desc {{ font-size: 13.5px; color: #374151; line-height: 1.55; margin-bottom: 14px; }}
+    .brief-info-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }}
+    .brief-info-box {{ border-radius: 8px; padding: 12px 14px; }}
+    .brief-info-label {{ font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+        letter-spacing: .05em; margin-bottom: 4px; }}
+    .brief-info-text {{ font-size: 13px; line-height: 1.5; color: #1f2937; }}
+
+    /* Landing page */
+    .landing-hero {{
+        background: linear-gradient(160deg, {PALETTE['navy']} 0%, {PALETTE['teal']} 130%);
+        border-radius: 16px; padding: 44px 40px; color: #f1efe8; margin-bottom: 24px;
+    }}
+    .landing-section-title {{ font-size: 22px; font-weight: 700; color: {PALETTE['navy']};
+        margin: 34px 0 6px; }}
+    .use-card, .benefit-card {{
+        background: #ffffff; border: 0.5px solid {PALETTE['line']}; border-radius: 10px;
+        padding: 16px 18px; height: 100%;
+    }}
+    .use-card h4, .benefit-card h4 {{ margin: 0 0 6px; font-size: 14.5px; color: {PALETTE['navy']}; }}
+    .use-card p, .benefit-card p {{ margin: 0; font-size: 13px; color: #4b5563; line-height: 1.5; }}
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 # ---------------------------------------------------------------------------
+# NOTE: the landing/intro page (hero + "who this is for" + benefits) was
+# removed for now, on request, so the dashboard opens directly and the core
+# features (logo, last-updated, filters, personas, questionnaire) are
+# immediately visible without an extra click. The landing page content is
+# kept in landing_page_backup.py if it's wanted again later.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
+last_updated = df["Date"].max().strftime("%d %b %Y")
 st.markdown(
-    """
+    f"""
     <div class="gpn-header">
-        <p class="gpn-eyebrow">Global Policy Network · Prototype</p>
-        <p class="gpn-title">AI Healthcare Intelligence Dashboard</p>
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
+            <div style="display:flex; align-items:center; gap:10px;">
+                <div style="width:34px; height:34px; border-radius:8px; background:{PALETTE['teal']};
+                    display:flex; align-items:center; justify-content:center; font-weight:700; font-size:14px;
+                    color:#fff; flex:none;">GPN</div>
+                <div>
+                    <p class="gpn-eyebrow" style="margin:0;">Global Policy Network · Prototype</p>
+                    <a href="https://www.GlobalPolicyNetwork.com" target="_blank"
+                       style="font-size:11px; color:#9fb3ac;">www.GlobalPolicyNetwork.com</a>
+                </div>
+            </div>
+            <div style="text-align:right; font-size:11px; color:#9fb3ac;">Last updated<br>
+                <span style="color:#f1efe8; font-weight:600;">{last_updated}</span></div>
+        </div>
+        <p class="gpn-title" style="margin-top:14px;">AI Healthcare Intelligence Dashboard</p>
         <p class="gpn-sub">Public healthcare updates, organised and explained — with a persona
         lens so the same update reads differently for a clinician, a policy manager, or a
         trust operations lead.</p>
@@ -181,6 +331,20 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+# ---------------------------------------------------------------------------
+# Stat strip — shown on the main dashboard too, like the reference site
+# ---------------------------------------------------------------------------
+stat_cols = st.columns(3)
+stats = [(str(len(df)), "Live intelligence briefs"), ("7", "Topic streams"), ("UK", "NHS market focus")]
+for col, (num, label) in zip(stat_cols, stats):
+    with col:
+        st.markdown(
+            f"""<div class="gpn-stat-card"><p class="gpn-stat-number">{num}</p>
+            <p class="gpn-stat-label">{label}</p></div>""",
+            unsafe_allow_html=True,
+        )
+st.write("")
 
 # ---------------------------------------------------------------------------
 # Top filter bar — category / source buttons (added per tutor feedback:
@@ -197,13 +361,21 @@ top_source_filter = st.pills(
     "Source", ALL_SOURCES, selection_mode="multi", label_visibility="collapsed", key="top_source_pills"
 )
 
+st.markdown("**Filter by when published**")
+DATE_RANGES = ["Last 7 days", "Last 30 days", "Last 90 days", "All time"]
+date_range_choice = st.pills(
+    "When", DATE_RANGES, selection_mode="single", default="All time",
+    label_visibility="collapsed", key="date_range_pill"
+)
+st.caption(f"Relative to the most recent update in this sample ({last_updated}) — not today's real-world date.")
+
 st.divider()
 
 # ---------------------------------------------------------------------------
 # Persona selector
 # ---------------------------------------------------------------------------
 st.markdown("**Reading as**")
-cols = st.columns(3)
+cols = st.columns(4)
 for col, (pid, p) in zip(cols, PERSONAS.items()):
     with col:
         label = f"{display_first_name(p['name'])} · {p['role'].split('/')[0].split(',')[0].strip()}"
@@ -218,6 +390,66 @@ with st.expander(f"About this persona — {active['name']}, {active['role']}"):
     st.write(f"**Prefers:** {active['preferred']}")
     st.write(f"**Cares most about:** {', '.join(active['match_topics'])} topics, "
              f"for {', '.join(active['match_audience'])}.")
+
+# ---------------------------------------------------------------------------
+# Persona-matching questionnaire — helps a new user figure out which of the
+# four personas fits them, without needing to know the personas up front.
+# ---------------------------------------------------------------------------
+QUESTIONNAIRE = [
+    {
+        "question": "Which best describes your day-to-day role?",
+        "options": [
+            ("Direct patient care / clinical practice", "clinical_lead"),
+            ("Local commissioning or system planning (ICB)", "policy_manager"),
+            ("Operations, digital or technology management", "trust_manager"),
+            ("National policy, legislation or regulation", "policy_maker_amina"),
+        ],
+    },
+    {
+        "question": "What kind of update matters most to you?",
+        "options": [
+            ("New clinical guidance or treatment evidence", "clinical_lead"),
+            ("Local funding or commissioning decisions", "policy_manager"),
+            ("New technology, tools or market/supplier news", "trust_manager"),
+            ("National legislation or regulatory change", "policy_maker_amina"),
+        ],
+    },
+    {
+        "question": "When you read an update, what do you want first?",
+        "options": [
+            ("What should I do differently in practice", "clinical_lead"),
+            ("What it means for local budgets and decisions", "policy_manager"),
+            ("What it means operationally, right now", "trust_manager"),
+            ("Who it affects nationally and why it matters", "policy_maker_amina"),
+        ],
+    },
+]
+
+with st.expander("Not sure which persona fits you? Take the 1-minute questionnaire"):
+    answers = {}
+    for i, q in enumerate(QUESTIONNAIRE):
+        choice = st.radio(q["question"], [opt[0] for opt in q["options"]], key=f"quiz_q{i}", index=None)
+        if choice:
+            answers[i] = dict(q["options"])[choice]
+
+    if st.button("See my recommended persona"):
+        if len(answers) < len(QUESTIONNAIRE):
+            st.warning("Please answer all three questions first.")
+        else:
+            from collections import Counter
+            st.session_state.quiz_winner = Counter(answers.values()).most_common(1)[0][0]
+
+    # Kept outside the button's if-block (a common Streamlit gotcha: a button
+    # nested inside another button's block never actually fires, because on
+    # the rerun triggered by clicking it, the outer button's condition is
+    # False again) so the result and switch action persist correctly.
+    if st.session_state.get("quiz_winner"):
+        winner = PERSONAS[st.session_state.quiz_winner]
+        st.success(f"Based on your answers, your closest match is **{winner['name']}** — {winner['role']}.")
+        if st.button(f"Switch to {display_first_name(winner['name'])}'s view"):
+            st.session_state.persona = st.session_state.quiz_winner
+            st.session_state.quiz_winner = None
+            st.rerun()
 
 st.divider()
 
@@ -247,6 +479,10 @@ if topic_filter:
     filtered = filtered[filtered["Topic Tags"].apply(lambda tags: any(t in tags for t in topic_filter))]
 if top_source_filter:
     filtered = filtered[filtered["Primary Source"].isin(top_source_filter)]
+if date_range_choice and date_range_choice != "All time":
+    days = {"Last 7 days": 7, "Last 30 days": 30, "Last 90 days": 90}[date_range_choice]
+    cutoff = df["Date"].max() - pd.Timedelta(days=days)
+    filtered = filtered[filtered["Date"] >= cutoff]
 if audience_filter:
     filtered = filtered[filtered["Audience Tags"].apply(lambda tags: any(a in tags for a in audience_filter))]
 if search:
@@ -268,43 +504,64 @@ if filtered.empty:
     st.info("No updates match these filters. Try clearing a filter in the sidebar.")
 
 for _, row in filtered.iterrows():
-    with st.container(border=True):
-        head_col, score_col = st.columns([5, 1])
-        with head_col:
-            st.markdown(f"**{row['Title']}**")
-            st.caption(f"{row['Source']} · {row['Date']} · {row['Source Type']}")
-            tag_html = "".join(f'<span class="badge badge-topic">{t}</span>' for t in row["Topic Tags"])
-            tag_html += "".join(f'<span class="badge badge-audience">{a}</span>' for a in row["Audience Tags"])
-            st.markdown(tag_html, unsafe_allow_html=True)
-        with score_col:
-            st.metric("Match", f"{row['Relevance']}%")
+    rel_pct = row["Relevance"]
+    urgency_label, urgency_color, urgency_bg = urgency_level(rel_pct)
+    signal = reliability_score_10(row["Reliability"])
+    heights = bar_heights(row["Title"])
+    primary_topic = row["Topic Tags"][0] if row["Topic Tags"] else "Update"
+    ago_label = time_ago(row["Date"], df["Date"].max())
 
-        with st.expander("View AI-generated insight"):
-            c1, c2 = st.columns(2)
-            fields = [
-                ("What changed", row["What Changed"]),
-                ("Why it matters", row["Why It Matters"]),
-                ("Who it affects", row["Who It Affects"]),
-                ("Suggested action", row["Suggested Action"]),
-            ]
-            for i, (label, text) in enumerate(fields):
-                target = c1 if i % 2 == 0 else c2
-                is_focus = label.lower().replace("suggested ", "") in [f.lower().replace("suggested ", "") for f in active["focus"]]
-                with target:
-                    if is_focus:
-                        st.markdown(
-                            f"<div style='background:{PALETTE['teal_soft']}; padding:8px 10px; "
-                            f"border-radius:6px; margin-bottom:8px;'>"
-                            f"<span style='font-size:10.5px; text-transform:uppercase; "
-                            f"letter-spacing:.05em; color:{PALETTE['teal']};'>{label}</span><br>"
-                            f"{text}</div>",
-                            unsafe_allow_html=True,
-                        )
-                    else:
-                        st.markdown(f"**{label}**")
-                        st.write(text)
-            st.markdown(f"[View original source ↗]({row['URL']})")
-            st.caption(f"Source reliability: {reliability_badge(row['Reliability'])} — {row['Reliability']}")
+    bars_html = "".join(f'<div class="brief-bar" style="height:{h}px;"></div>' for h in heights)
+
+    st.markdown(
+        f"""
+        <div class="brief-card">
+          <div class="brief-sidepanel">
+            <div>
+              <span class="brief-sysmap">📊 SYSTEM MAP</span>
+              <div class="brief-bars">{bars_html}</div>
+            </div>
+            <div>
+              <div class="brief-signal-label"><span>SIGNAL STRENGTH</span><span>{signal:.1f}</span></div>
+              <div class="brief-signal-bar"><div class="brief-signal-fill" style="width:{signal*10}%;"></div></div>
+            </div>
+          </div>
+          <div class="brief-main">
+            <div class="brief-top-row">
+              <div class="brief-tags">
+                <span class="brief-tag" style="background:{PALETTE['teal_soft']}; color:{PALETTE['teal']};">{primary_topic}</span>
+                <span class="brief-tag" style="background:{urgency_bg}; color:{urgency_color};">{urgency_label}</span>
+              </div>
+              <div class="brief-relevance-box">
+                <div class="brief-relevance-label">RELEVANCE</div>
+                <div class="brief-relevance-value">{rel_pct/10:.1f} / 10</div>
+              </div>
+            </div>
+            <div class="brief-title">{row['Title']}</div>
+            <div class="brief-meta">{row['Source']} · {row['Date'].strftime('%d %b %Y')} <span class="brief-time-ago">{ago_label}</span></div>
+            <div class="brief-desc">{row['What Changed']}</div>
+            <div class="brief-info-grid">
+              <div class="brief-info-box" style="background:{PALETTE['teal_soft']};">
+                <div class="brief-info-label" style="color:{PALETTE['teal']};">Strategic Impact</div>
+                <div class="brief-info-text">{row['Why It Matters']}</div>
+              </div>
+              <div class="brief-info-box" style="background:{PALETTE['violet_soft']};">
+                <div class="brief-info-label" style="color:{PALETTE['violet']};">Recommended Action</div>
+                <div class="brief-info-text">{row['Suggested Action']}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    with st.expander(f"View Intelligence Brief — {row['ID']}"):
+        st.markdown(f"**Who it affects:** {row['Who It Affects']}")
+        st.markdown(f"[View original source ↗]({row['URL']})")
+        st.caption(f"Source reliability: {reliability_badge(row['Reliability'])} — {row['Reliability']}")
+        aud_html = "".join(f'<span class="badge badge-audience">{a}</span>' for a in row["Audience Tags"])
+        st.markdown(f"Relevant to: {aud_html}", unsafe_allow_html=True)
 
 st.divider()
 st.caption(
