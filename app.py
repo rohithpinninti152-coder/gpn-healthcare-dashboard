@@ -122,7 +122,7 @@ PERSONAS = {
                       "costs or requires to adopt, and what to do about it.",
     },
     "policy_maker_amina": {
-        "name": "Amina Yusuf",
+        "name": "Amina Ghazal",
         "role": "Senior Policy Maker, Department of Health and Social Care",
         "color": "#8a4b6b",
         "match_topics": ["Policy", "Regulation", "Public Health"],
@@ -228,7 +228,7 @@ st.markdown(
     <style>
     .stApp {{ background-color: {PALETTE['paper']}; }}
     .gpn-header {{
-        background: {PALETTE['navy']}; color: #f1efe8; padding: 20px 26px;
+        background: linear-gradient(135deg, #1E3A8A 0%, {PALETTE['teal']} 140%); color: #f1efe8; padding: 20px 26px;
         border-radius: 10px; margin-bottom: 18px; border-bottom: 4px solid {PALETTE['teal']};
     }}
     .gpn-eyebrow {{ font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
